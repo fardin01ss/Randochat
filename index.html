@@ -1,0 +1,399 @@
+<meta name='viewport' content='width=device-width, initial-scale=1'/><!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>RandMeet -- Random Video Chat (Firebase + WebRTC)</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#07102a;color:#eaf2ff;margin:0;display:flex;flex-direction:column;align-items:center}
+    header{width:100%;max-width:1100px;padding:14px;display:flex;justify-content:space-between;align-items:center}
+    .panel{width:100%;max-width:980px;margin:12px;padding:14px;border-radius:10px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border:1px solid rgba(255,255,255,0.03)}
+    input,select,button{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.06);background:rgba(12,18,34,.6);color:#fff}
+    .row{display:flex;gap:8px;align-items:center}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    video{width:100%;background:#000;border-radius:8px}
+    .container{display:grid;grid-template-columns:1fr 340px;gap:12px}
+    @media(max-width:900px){.container{grid-template-columns:1fr}}
+    .chat{height:300px;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px;background:rgba(255,255,255,0.01);border-radius:8px}
+    .msg{padding:8px;border-radius:8px;background:rgba(255,255,255,0.02);max-width:80%}
+    .msg.me{align-self:flex-end;background:rgba(78,168,255,0.12)}
+    small.muted{color:#9aa6bf}
+  </style>
+</head>
+<body>
+  <header class="panel">
+    <div><strong>Rand<span style="color:#80ed99">Meet</span></strong></div>
+    <div id="status" style="color:#9aa6bf">Ready</div>
+  </header>
+
+  <!-- AUTH -->
+  <section id="authPanel" class="panel">
+    <h3>Login / Signup</h3>
+    <div style="display:flex;flex-direction:column;gap:8px;max-width:560px">
+      <input id="email" type="email" placeholder="Email (test@example.com)" />
+      <input id="password" type="password" placeholder="Password" />
+      <div class="row">
+        <button id="btnSignup">Signup</button>
+        <button id="btnLogin">Login</button>
+        <button id="btnAnon" style="margin-left:auto">Try as Guest</button>
+      </div>
+      <small class="muted">Tip: Camera works on <b>localhost</b> or <b>HTTPS</b>. Enable Email/Password in Firebase Auth and add localhost to Authorized domains.</small>
+    </div>
+  </section>
+
+  <!-- PROFILE -->
+  <section id="profilePanel" class="panel" style="display:none">
+    <h3>Set up profile</h3>
+    <div class="grid2" style="margin-bottom:8px">
+      <input id="name" placeholder="Full name" />
+      <input id="age" type="number" min="13" placeholder="Age" />
+      <select id="gender"><option value="">Gender</option><option>Male</option><option>Female</option><option>Other</option></select>
+      <select id="country"><option value="">Country</option><option>India</option><option>United States</option><option>United Kingdom</option></select>
+    </div>
+    <div class="row">
+      <button id="btnSaveProfile">Save & Continue</button>
+      <button id="btnLogout" style="margin-left:auto;background:#ff6b6b">Logout</button>
+    </div>
+  </section>
+
+  <!-- CHAT -->
+  <main id="chatPanel" class="panel" style="display:none">
+    <div class="container">
+      <section style="padding:12px;border-radius:8px">
+        <div style="display:grid;gap:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <video id="localVideo" autoplay playsinline muted></video>
+              <div><small class="muted">You • <span id="youBrief">--</span></small></div>
+            </div>
+            <div>
+              <video id="remoteVideo" autoplay playsinline></video>
+              <div><small class="muted">Stranger • <span id="peerBrief">--</span></small></div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button id="btnStart" style="background:linear-gradient(180deg,#66b3ff,#3780ff)">Start</button>
+            <button id="btnNext">Next</button>
+            <button id="btnEnd" style="background:#ff6b6b">End</button>
+            <button id="btnMute">Mute</button>
+            <button id="btnCam">Camera Off</button>
+            <select id="selCam"></select>
+            <select id="selMic"></select>
+            <span style="margin-left:auto"><small id="roomBadge" class="muted">Room: --</small></span>
+          </div>
+        </div>
+      </section>
+
+      <aside style="padding:12px;border-radius:8px;display:flex;flex-direction:column">
+        <header style="display:flex;justify-content:space-between;align-items:center">
+          <strong>Chat</strong>
+          <div><small id="connState" class="muted">conn: new</small></div>
+        </header>
+        <div id="chat" class="chat"></div>
+        <div style="display:flex;gap:8px;padding-top:8px">
+          <input id="txt" placeholder="Type message…" style="flex:1" />
+          <button id="send">Send</button>
+        </div>
+        <small class="muted" style="padding-top:8px">Report or block users if needed.</small>
+      </aside>
+    </div>
+  </main>
+
+  <!-- Firebase compat SDKs for single-file (simple) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+  <script>
+  /********* CONFIG - replace with your Firebase config (yours was provided earlier) *********/
+  const firebaseConfig = {
+    apiKey: "AIzaSyDXY0lVsLXL369wCdNoVbu4h-Jeb71Ckf8",
+    authDomain: "rando-chat-39e21.firebaseapp.com",
+    databaseURL: "https://rando-chat-39e21-default-rtdb.firebaseio.com",
+    projectId: "rando-chat-39e21",
+    storageBucket: "rando-chat-39e21.firebasestorage.app",
+    messagingSenderId: "734840622755",
+    appId: "1:734840622755:web:a6fde98226a3378af33916",
+    measurementId: "G-JJ3M95WL11"
+  };
+  /***************************************************************************************/
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.database();
+
+  // UI refs
+  const authPanel = document.getElementById('authPanel');
+  const profilePanel = document.getElementById('profilePanel');
+  const chatPanel = document.getElementById('chatPanel');
+  const statusEl = document.getElementById('status');
+  const youBrief = document.getElementById('youBrief'), peerBrief = document.getElementById('peerBrief');
+  const localVideo = document.getElementById('localVideo'), remoteVideo = document.getElementById('remoteVideo');
+  const selCam = document.getElementById('selCam'), selMic = document.getElementById('selMic');
+  const btnStart = document.getElementById('btnStart'), btnNext = document.getElementById('btnNext'), btnEnd = document.getElementById('btnEnd');
+  const btnMute = document.getElementById('btnMute'), btnCam = document.getElementById('btnCam');
+  const chatEl = document.getElementById('chat'), txt = document.getElementById('txt'), sendBtn = document.getElementById('send');
+  const roomBadge = document.getElementById('roomBadge'), connState = document.getElementById('connState');
+
+  // auth buttons
+  document.getElementById('btnSignup').onclick = async ()=>{
+    try{
+      const email = document.getElementById('email').value.trim();
+      const pass = document.getElementById('password').value;
+      await auth.createUserWithEmailAndPassword(email, pass);
+    }catch(e){ alert('Signup error: ' + e.message); console.error(e); }
+  };
+  document.getElementById('btnLogin').onclick = async ()=>{
+    try{
+      const email = document.getElementById('email').value.trim();
+      const pass = document.getElementById('password').value;
+      await auth.signInWithEmailAndPassword(email, pass);
+    }catch(e){ alert('Login error: ' + e.message); console.error(e); }
+  };
+  document.getElementById('btnAnon').onclick = async ()=> {
+    try{ await auth.signInAnonymously(); }catch(e){ alert('Anon error: ' + e.message); console.error(e); }
+  };
+  document.getElementById('btnLogout').onclick = async ()=>{
+    await leaveRoom(true); await auth.signOut(); showPanel('auth'); setStatus('Signed out');
+  };
+
+  // state
+  let me=null, myUid=null, myProfile=null;
+  let pc=null, dc=null, localStream=null;
+  let roomId=null, role=null, roomRef=null;
+
+  const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]; // add TURN here if you have one
+
+  function setStatus(s){ statusEl.textContent = s; console.log('[status]', s); }
+  function showPanel(name){
+    authPanel.style.display = 'none';
+    profilePanel.style.display = 'none';
+    chatPanel.style.display = 'none';
+    if(name==='auth') authPanel.style.display = '';
+    if(name==='profile') profilePanel.style.display = '';
+    if(name==='chat') chatPanel.style.display = '';
+  }
+
+  // auth observer
+  auth.onAuthStateChanged(async user=>{
+    if(!user){ me=null; myUid=null; showPanel('auth'); setStatus('Please login'); return; }
+    me = user; myUid = user.uid; setStatus('Logged in: ' + myUid.slice(0,6));
+    // fetch profile
+    const snap = await db.ref('users/' + myUid).once('value');
+    if(snap.exists()){ myProfile = snap.val(); youBrief.textContent = briefOf(myProfile); showPanel('chat'); } else { showPanel('profile'); }
+    // list devices
+    listDevices().catch(()=>{});
+  });
+
+  function briefOf(p){ return p ? `${p.name || 'You'} • ${p.gender||'--'} • ${p.age||'--'} • ${p.country||'--'}` : '--'; }
+
+  // save profile
+  document.getElementById('btnSaveProfile').onclick = async ()=>{
+    const name = document.getElementById('name').value.trim();
+    const age = parseInt(document.getElementById('age').value,10);
+    const gender = document.getElementById('gender').value;
+    const country = document.getElementById('country').value;
+    if(!name||!age||!gender||!country){ alert('Please fill all fields'); return; }
+    myProfile = { name, age, gender, country, updatedAt: firebase.database.ServerValue.TIMESTAMP };
+    await db.ref('users/' + myUid).set(myProfile);
+    youBrief.textContent = briefOf(myProfile);
+    showPanel('chat');
+  };
+
+  // devices
+  async function listDevices(){
+    try{
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      selCam.innerHTML=''; selMic.innerHTML='';
+      let c=1,m=1;
+      for(const d of devices){
+        if(d.kind==='videoinput'){ const o=document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||('Camera '+(c++)); selCam.appendChild(o); }
+        if(d.kind==='audioinput'){ const o=document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||('Mic '+(m++)); selMic.appendChild(o); }
+      }
+    }catch(e){ console.warn('listDevices', e); }
+  }
+  navigator.mediaDevices?.addEventListener?.('devicechange', listDevices);
+
+  async function getLocalStream(){
+    const constraints = {
+      video: selCam.value ? { deviceId: { exact: selCam.value } } : { width:{ideal:1280}, height:{ideal:720} },
+      audio: selMic.value ? { deviceId: { exact: selMic.value } } : true
+    };
+    return await navigator.mediaDevices.getUserMedia(constraints);
+  }
+
+  // WebRTC core: create peer
+  async function createPeer(){
+    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    pc.onconnectionstatechange = ()=>{ connState.textContent = pc.connectionState; };
+    pc.oniceconnectionstatechange = ()=>{ console.log('ice state', pc.iceConnectionState); };
+    pc.ontrack = e=>{ remoteVideo.srcObject = e.streams[0]; };
+    if(role==='caller'){ dc = pc.createDataChannel('chat'); setupDC(); }
+    else pc.ondatachannel = e=>{ dc = e.channel; setupDC(); };
+
+    // local stream
+    try{
+      localStream = await getLocalStream();
+    }catch(e){
+      alert('Camera/Mic access error: ' + e.message + '\nUse HTTPS or localhost.');
+      throw e;
+    }
+    localVideo.srcObject = localStream;
+    localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
+
+    // ICE -> push to DB
+    pc.onicecandidate = ev=>{
+      if(ev.candidate){
+        const branch = role==='caller' ? 'callerCandidates' : 'calleeCandidates';
+        db.ref('rooms/' + roomId + '/' + branch).push(ev.candidate.toJSON());
+      }
+    };
+
+    // read other candidates
+    const otherBranch = role==='caller' ? 'calleeCandidates' : 'callerCandidates';
+    db.ref('rooms/' + roomId + '/' + otherBranch).on('child_added', async snap=>{
+      try{ await pc.addIceCandidate(snap.val()); }catch(e){ console.warn('addIceCandidate failed', e); }
+    });
+  }
+
+  function setupDC(){
+    dc.onopen = ()=> addMsg('DataChannel open -- say hi 👋','them');
+    dc.onmessage = e=> addMsg(e.data,'them');
+    dc.onclose = ()=> addMsg('DataChannel closed','them');
+    sendBtn.onclick = ()=> {
+      if(!dc || dc.readyState!=='open'){ addMsg('Channel not ready'); return; }
+      const v = txt.value.trim(); if(!v) return; dc.send(v); addMsg(v,'me'); txt.value='';
+    };
+    txt.addEventListener('keydown', e=>{ if(e.key==='Enter') sendBtn.click(); });
+  }
+
+  function addMsg(text, who='them'){
+    const d = document.createElement('div'); d.className='msg ' + (who==='me'?'me':''); d.textContent = text; chatEl.appendChild(d); chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  // MATCHMAKING: random using rooms node + transaction claim
+  async function createRoomAsCaller(){
+    setStatus('Creating room (caller)…');
+    const newRef = db.ref('rooms').push();
+    roomId = newRef.key; roomBadge.textContent = 'Room: ' + roomId.slice(0,6);
+    role = 'caller';
+    await createPeer();
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await db.ref('rooms/' + roomId).set({
+      status: 'waiting',
+      createdBy: myUid,
+      createdAt: firebase.database.ServerValue.TIMESTAMP,
+      offer: { type: offer.type, sdp: offer.sdp },
+      callerProfile: myProfile || {}
+    });
+    // listen for answer
+    db.ref('rooms/' + roomId + '/answer').on('value', async snap=>{
+      const val = snap.val();
+      if(val && pc && !pc.currentRemoteDescription){
+        await pc.setRemoteDescription(new RTCSessionDescription(val));
+        setStatus('Connected (caller)');
+      }
+    });
+    setStatus('Waiting for stranger…');
+  }
+
+  async function joinRandomRoomAsCallee(){
+    setStatus('Searching for waiting rooms…');
+    const roomsSnap = await db.ref('rooms').once('value');
+    let chosenKey = null;
+    roomsSnap.forEach(child=>{
+      const v = child.val();
+      if(!chosenKey && v && v.status === 'waiting' && v.createdBy !== myUid) chosenKey = child.key;
+    });
+    if(!chosenKey){
+      // no waiting rooms -> become caller
+      return await createRoomAsCaller();
+    }
+    // claim chosenKey via transaction
+    const thisRef = db.ref('rooms/' + chosenKey);
+    thisRef.transaction(curr=>{
+      if(curr && curr.status === 'waiting'){
+        curr.status = 'matched'; curr.joinedBy = myUid; curr.calleeProfile = myProfile || {};
+        return curr;
+      }
+      return; // abort
+    }, async (err, committed, snapshot)=>{
+      if(err || !committed){
+        // failed to claim, try again
+        return await joinRandomRoomAsCallee();
+      }
+      // success
+      roomId = chosenKey; roomBadge.textContent = 'Room: ' + roomId.slice(0,6);
+      role = 'callee';
+      await createPeer();
+      const roomData = (await db.ref('rooms/' + roomId).once('value')).val();
+      if(!roomData || !roomData.offer){ setStatus('Invalid room data'); return await resetAndReconnect(); }
+      // set remote offer, create answer
+      await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await db.ref('rooms/' + roomId + '/answer').set({ type: answer.type, sdp: answer.sdp });
+      setStatus('Connected (callee)');
+    });
+  }
+
+  async function startMatchmaking(){
+    await listDevices();
+    connState.textContent = 'searching';
+    await joinRandomRoomAsCallee();
+  }
+
+  async function leaveRoom(remove=true){
+    try{ if(pc){ pc.onicecandidate=null; pc.ontrack=null; pc.onconnectionstatechange=null; pc.close(); } }catch(e){}
+    pc=null; dc=null;
+    if(roomId){
+      db.ref('rooms/' + roomId + '/callerCandidates').remove().catch(()=>{});
+      db.ref('rooms/' + roomId + '/calleeCandidates').remove().catch(()=>{});
+      if(remove) db.ref('rooms/' + roomId).remove().catch(()=>{});
+    }
+    roomId=null; role=null; roomBadge.textContent='Room: --'; connState.textContent='new';
+    if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; localVideo.srcObject=null; }
+    if(remoteVideo.srcObject){ remoteVideo.srcObject.getTracks().forEach(t=>t.stop()); remoteVideo.srcObject=null; }
+  }
+
+  async function resetAndReconnect(){
+    await leaveRoom(true);
+    await startMatchmaking();
+  }
+
+  // UI handlers
+  btnStart.onclick = async ()=>{ btnStart.disabled=true; await startMatchmaking(); btnStart.disabled=false; };
+  btnNext.onclick = async ()=>{ btnNext.disabled=true; setStatus('Skipping…'); await resetAndReconnect(); btnNext.disabled=false; };
+  btnEnd.onclick = async ()=>{ btnEnd.disabled=true; await leaveRoom(true); setStatus('Ended'); btnEnd.disabled=false; };
+
+  btnMute.onclick = ()=>{ if(!localStream) return; const t = localStream.getAudioTracks()[0]; if(!t) return; t.enabled = !t.enabled; btnMute.textContent = t.enabled ? 'Mute' : 'Unmute'; };
+  btnCam.onclick = ()=>{ if(!localStream) return; const t = localStream.getVideoTracks()[0]; if(!t) return; t.enabled = !t.enabled; btnCam.textContent = t.enabled ? 'Camera Off' : 'Camera On'; };
+
+  sendBtn.onclick = ()=>{ if(!dc || dc.readyState!=='open'){ addLocalMsg('Channel not ready'); return; } const v = txt.value.trim(); if(!v) return; dc.send(v); addLocalMsg(v); txt.value=''; };
+  function addLocalMsg(t){ const d=document.createElement('div'); d.className='msg me'; d.textContent=t; chatEl.appendChild(d); chatEl.scrollTop = chatEl.scrollHeight; }
+  function addRemoteMsg(t){ const d=document.createElement('div'); d.className='msg'; d.textContent=t; chatEl.appendChild(d); chatEl.scrollTop = chatEl.scrollHeight; }
+
+  // DataChannel hooks map to UI
+  function setupDC(){
+    dc.onopen = ()=> { addRemoteMsg('Chat ready -- say hi 👋'); };
+    dc.onmessage = e=> addRemoteMsg(e.data);
+    dc.onclose = ()=> addRemoteMsg('Chat closed');
+  }
+
+  // helper to show brief
+  function briefOf(p){ return p ? `${p.name || 'You'} • ${p.gender||'--'} • ${p.age||'--'} • ${p.country||'--'}` : '--'; }
+
+  // debug DB permission check
+  db.ref().once('value').catch(err=>console.warn('DB read failed', err));
+
+  // export some functions to console for debugging
+  window._rm = async ()=>{ await db.ref('rooms').remove(); console.log('rooms removed'); };
+
+  // show auth panel initially
+  showPanel('auth');
+
+  </script>
+</body>
+</html>
