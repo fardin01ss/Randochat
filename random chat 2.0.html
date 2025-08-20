@@ -1,0 +1,556 @@
+<meta name='viewport' content='width=device-width, initial-scale=1'/><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RandMeet -- Omegle-style Random Video Chat (With TURN)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0b1020; --panel:#121a38; --muted:#98a2b3; --brand:#6ea8fe; --accent:#80ed99; --danger:#ff6b6b; }
+    *{box-sizing:border-box}
+    body { margin:0; font-family:"Poppins",system-ui,Segoe UI,Roboto,Helvetica,Arial; background: radial-gradient(1200px 800px at 80% -10%, #1a254f, transparent), radial-gradient(1000px 700px at -10% 10%, #0d4d4d, transparent), var(--bg); color:#eef2ff; min-height:100vh; display:flex; flex-direction:column; }
+    header.app { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px; position:sticky; top:0; z-index:5; border-bottom:1px solid rgba(255,255,255,.05); background:linear-gradient(180deg, rgba(10,16,32,.9), rgba(10,16,32,.4) 60%, transparent); backdrop-filter:saturate(180%) blur(10px); }
+    header.app h1 { margin:0; font-size:18px; letter-spacing:.3px; }
+    header.app h1 span { color: var(--accent); }
+    .status { font-size:12px; color:var(--muted) }
+    .container { width:100%; max-width:1100px; margin:18px auto; padding:0 12px; flex:1; display:grid; gap:14px; grid-template-columns: 1fr; }
+    @media (min-width:980px){ .container { grid-template-columns: 2fr 1fr; } }
+    .card { background: linear-gradient(180deg, rgba(18,26,56,.95), rgba(18,26,56,.7)); border:1px solid rgba(255,255,255,.06); border-radius:18px; box-shadow:0 10px 30px rgba(0,0,0,.35); overflow:hidden; }
+    .panel { max-width:520px; margin:40px auto; padding:22px; border-radius:18px; border:1px solid rgba(255,255,255,.08); background: linear-gradient(180deg, rgba(18,26,56,.95), rgba(18,26,56,.7)); box-shadow:0 10px 30px rgba(0,0,0,.35); }
+    .panel h2 { margin-top:0 }
+    .row { display:flex; gap:8px; align-items:center; }
+    .stack { display:flex; flex-direction:column; gap:10px; }
+    input, select, button { appearance:none; border:none; color:#fff; background:linear-gradient(180deg, #273057, #1a2246); border:1px solid rgba(255,255,255,.08); padding:12px 14px; border-radius:12px; font-weight:600; box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 16px rgba(0,0,0,.25); }
+    button { cursor:pointer; transition:.25s transform, .25s opacity, .25s background; }
+    button:hover { transform: translateY(-1px); }
+    button.brand { background:linear-gradient(180deg, #5aa1ff, #3772ff); }
+    button.ghost { background:transparent; border:1px dashed rgba(255,255,255,.25) }
+    button.danger { background:linear-gradient(180deg, #ff7b7b, #ff4b4b); }
+    .muted { color:var(--muted); font-size:12px; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .video-wrap { position:relative; display:grid; grid-template-columns:1fr; gap:10px; padding:10px; }
+    @media (min-width:700px){ .video-wrap { grid-template-columns: 1fr 1fr; } }
+    video { width:100%; aspect-ratio:16/9; background:#0a0f23; border-radius:12px; object-fit:cover; }
+    .pillbar { display:flex; gap:8px; flex-wrap:wrap; padding:10px; border-top:1px solid rgba(255,255,255,.06); background:rgba(0,0,0,.15) }
+    .chat { flex:1; overflow:auto; padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+    .msg { background:#0b1638; padding:8px 10px; border-radius:12px; width:max-content; max-width:85%; border:1px solid rgba(255,255,255,.05); }
+    .msg.them { align-self:flex-start; background:#0f1f3f; }
+    .msg.me { align-self:flex-end; background:#112a52; }
+    .chatbox { display:flex; gap:8px; padding:10px; border-top:1px solid rgba(255,255,255,.06); }
+    .chatbox input { flex:1; }
+    .badges { display:flex; gap:8px; flex-wrap:wrap; font-size:11px }
+    .badge { padding:4px 8px; border-radius:999px; background:#18386b; border:1px solid rgba(255,255,255,.08); }
+    .hidden { display:none !important; }
+    .topright { margin-left:auto }
+  </style>
+</head>
+<body>
+  <header class="app">
+    <h1>Rand<span>Meet</span></h1>
+    <div class="status" id="status">Welcome -- make sure site is on HTTPS</div>
+  </header>
+
+  <!-- AUTH PAGE -->
+  <section id="authPage" class="panel">
+    <h2>Login / Signup</h2>
+    <div class="stack">
+      <input id="email" type="email" placeholder="Email" autocomplete="username" />
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+      <div class="row">
+        <button id="btnSignup" class="brand">Signup</button>
+        <button id="btnLogin">Login</button>
+        <button id="btnAnon" class="ghost topright">Try as Guest</button>
+      </div>
+      <div class="muted">Tip: Camera works only on <b>HTTPS</b> or <b>localhost</b>.</div>
+    </div>
+  </section>
+
+  <!-- PROFILE PAGE -->
+  <section id="profilePage" class="panel hidden">
+    <h2>Setup your profile</h2>
+    <div class="grid2">
+      <input id="name" placeholder="Full name" />
+      <input id="age" type="number" min="13" max="120" placeholder="Age" />
+      <select id="gender">
+        <option value="">Gender</option>
+        <option>Male</option>
+        <option>Female</option>
+        <option>Other</option>
+      </select>
+      <select id="country">
+        <option value="">Country</option>
+        <option>India</option><option>United States</option><option>United Kingdom</option><option>Bangladesh</option><option>Nepal</option><option>Pakistan</option><option>Sri Lanka</option><option>Canada</option><option>Australia</option><option>Germany</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnSaveProfile" class="brand">Save & Continue</button>
+      <button id="btnLogout" class="danger topright">Logout</button>
+    </div>
+    <div class="muted">These details show to your match (name, country, age, gender).</div>
+  </section>
+
+  <!-- CHAT PAGE -->
+  <main id="chatPage" class="container hidden">
+    <section class="card">
+      <div class="video-wrap">
+        <div>
+          <video id="localVideo" autoplay playsinline muted></video>
+          <div class="muted">You • <span id="youBrief">--</span></div>
+        </div>
+        <div>
+          <video id="remoteVideo" autoplay playsinline></video>
+          <div class="muted">Stranger • <span id="peerBrief">--</span></div>
+        </div>
+      </div>
+      <div class="pillbar">
+        <button id="btnConnect" class="brand">Start</button>
+        <button id="btnNext" class="ghost">Next</button>
+        <button id="btnEnd" class="danger">End</button>
+        <button id="btnMute" class="ghost">Mute</button>
+        <button id="btnCam" class="ghost">Camera Off</button>
+        <select id="selCam"></select>
+        <select id="selMic"></select>
+        <span class="badge" id="bRole">Role: --</span>
+        <span class="badge" id="bIce">ICE: --</span>
+        <span class="badge" id="bRoom">Room: --</span>
+      </div>
+    </section>
+
+    <aside class="card" style="display:flex; flex-direction:column;">
+      <header style="padding:10px 12px; display:flex; justify-content:space-between; align-items:center;">
+        <strong>Chat</strong>
+        <div class="badges">
+          <span class="badge">Conn: <span id="connState">new</span></span>
+          <span class="badge">DTLS: <span id="dtlsState">--</span></span>
+          <span class="badge">ICE: <span id="iceState">--</span></span>
+          <span class="badge">Bitrate: <span id="bitrate">0 kbps</span></span>
+        </div>
+      </header>
+      <div id="chat" class="chat"></div>
+      <div class="chatbox">
+        <input id="txt" placeholder="Type message…" />
+        <button id="send">Send</button>
+      </div>
+      <div class="muted" style="padding:10px 12px;">Safety: Don't share personal info.</div>
+    </aside>
+  </main>
+
+  <!-- Firebase compat (Realtime + Auth) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+  <script>
+  /************************************************************************
+   * Final working RandMeet file
+   * - Uses Firebase RTDB + Auth as signaling + user profiles
+   * - Dynamically fetches ICE servers from Xirsys and uses TURN
+   * - Random matching via rooms in RTDB (create/join)
+   *
+   * SECURITY:
+   * - Xirsys secret is included client-side below for quick testing.
+   * - For production: deploy a simple server proxy to call Xirsys and set PROXY_ICE_URL.
+   ************************************************************************/
+
+  // ---------- Firebase config (using your earlier rando-chat config) ----------
+  const firebaseConfig = {
+    apiKey: "AIzaSyDXY0lVsLXL369wCdNoVbu4h-Jeb71Ckf8",
+    authDomain: "rando-chat-39e21.firebaseapp.com",
+    databaseURL: "https://rando-chat-39e21-default-rtdb.firebaseio.com",
+    projectId: "rando-chat-39e21",
+    storageBucket: "rando-chat-39e21.firebasestorage.app",
+    messagingSenderId: "734840622755",
+    appId: "1:734840622755:web:698067595924ec30f33916",
+    measurementId: "G-E3W8SE3D5V"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.database();
+
+  // ---------- Xirsys credentials (for quick testing) ----------
+  // ⚠️ Keep these server-side in production. See proxy example below.
+  const XIRSYS_USERNAME = "fardin01dz";
+  const XIRSYS_SECRET   = "b8353378-7d1f-11f0-90df-0242ac140002";
+
+  // If you deploy a proxy that returns { iceServers: [...] }, set PROXY_ICE_URL to it
+  const PROXY_ICE_URL = null; // e.g. "https://your-proxy.example/ice"
+
+  // ---------- Short helpers ----------
+  const $ = id => document.getElementById(id);
+  const pages = { auth: $('authPage'), profile: $('profilePage'), chat: $('chatPage') };
+  const status = $('status');
+  const youBrief = $('youBrief'), peerBrief = $('peerBrief');
+
+  const localVideo = $('localVideo'), remoteVideo = $('remoteVideo');
+  const btnConnect = $('btnConnect'), btnNext = $('btnNext'), btnEnd = $('btnEnd'), btnMute = $('btnMute'), btnCam = $('btnCam');
+  const selCam = $('selCam'), selMic = $('selMic');
+  const bRole = $('bRole'), bIce = $('bIce'), bRoom = $('bRoom');
+  const connState = $('connState'), dtlsState = $('dtlsState'), iceState = $('iceState'), bitrateEl = $('bitrate');
+  const chat = $('chat'), txt = $('txt'), sendBtn = $('send');
+
+  // state
+  let me=null, myUid=null, myProfile=null;
+  let roomId=null, role=null, roomRef=null, callerCandidatesRef=null, calleeCandidatesRef=null;
+  let pc=null, dc=null, localStream=null, bitrateTimer=null;
+
+  function show(page){
+    Object.values(pages).forEach(p=>p.classList.add('hidden'));
+    pages[page].classList.remove('hidden');
+    window.scrollTo({ top:0, behavior:'smooth' });
+  }
+  function setStatus(s){ status.textContent = s; console.log('[status]', s); }
+  function setBadges(){ bRole.textContent = 'Role: ' + (role||'--'); bRoom.textContent = 'Room: ' + (roomId?roomId.slice(0,6):'--'); }
+
+  function addMsg(text, who='them'){
+    const div = document.createElement('div');
+    div.className = 'msg ' + (who==='me'?'me':'them');
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  // ---------- Auth flow ----------
+  $('btnSignup').onclick = async ()=>{
+    const email = $('email').value.trim(), pass = $('password').value;
+    try { await auth.createUserWithEmailAndPassword(email, pass); } catch(e){ alert(e.message); }
+  };
+  $('btnLogin').onclick = async ()=>{
+    const email = $('email').value.trim(), pass = $('password').value;
+    try { await auth.signInWithEmailAndPassword(email, pass); } catch(e){ alert(e.message); }
+  };
+  $('btnAnon').onclick = async ()=>{ try { await auth.signInAnonymously(); } catch(e){ alert(e.message); } };
+  $('btnLogout').onclick = async ()=>{ await leaveRoom(true); await auth.signOut(); };
+
+  auth.onAuthStateChanged(async user=>{
+    if(!user){ show('auth'); setStatus('Please login or try guest'); return; }
+    me = user; myUid = user.uid; setStatus('Signed in: ' + (user.email||('anon:'+myUid.slice(0,6))));
+    // load profile
+    try {
+      const snap = await db.ref('users/'+myUid).get();
+      if(snap.exists()){
+        myProfile = snap.val();
+        youBrief.textContent = formatBrief(myProfile);
+        show('chat');
+      } else {
+        show('profile');
+      }
+    } catch(e){ console.warn(e); show('profile'); }
+  });
+
+  $('btnSaveProfile').onclick = async ()=>{
+    const name = $('name').value.trim(), age = parseInt($('age').value,10);
+    const gender = $('gender').value, country = $('country').value;
+    if(!name || !age || !gender || !country) return alert('Please fill all fields');
+    myProfile = { name, age, gender, country, updatedAt: firebase.database.ServerValue.TIMESTAMP };
+    await db.ref('users/'+myUid).set(myProfile);
+    youBrief.textContent = formatBrief(myProfile);
+    show('chat');
+  };
+  function formatBrief(p){ return p ? `${p.name} • ${p.gender} • ${p.age} • ${p.country}` : '--'; }
+
+  // ---------- devices ----------
+  async function listDevices(){
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      selCam.innerHTML=''; selMic.innerHTML='';
+      for(const d of devices.filter(x=>x.kind==='videoinput')){
+        const opt = document.createElement('option'); opt.value=d.deviceId; opt.textContent=d.label || ('Camera');
+        selCam.appendChild(opt);
+      }
+      for(const d of devices.filter(x=>x.kind==='audioinput')){
+        const opt = document.createElement('option'); opt.value=d.deviceId; opt.textContent=d.label || ('Mic');
+        selMic.appendChild(opt);
+      }
+    } catch(e){ console.warn('listDevices', e); }
+  }
+  navigator.mediaDevices?.addEventListener?.('devicechange', listDevices);
+
+  async function getMedia(){
+    // If user picks text-only, we won't call getMedia (handled outside)
+    const constraints = {
+      video: selCam.value ? { deviceId: { exact: selCam.value } } : { width:{ideal:1280}, height:{ideal:720} },
+      audio: selMic.value ? { deviceId: { exact: selMic.value } } : true
+    };
+    return navigator.mediaDevices.getUserMedia(constraints);
+  }
+  function cleanupMedia(){
+    try { if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; localVideo.srcObject=null; } if(remoteVideo.srcObject){ remoteVideo.srcObject.getTracks().forEach(t=>t.stop()); remoteVideo.srcObject=null; } } catch(e){}
+  }
+
+  // ---------- ICE fetch (Xirsys / Proxy) ----------
+  async function fetchIceServers(){
+    // 1) try proxy if configured
+    try {
+      if(PROXY_ICE_URL){
+        setStatus('Fetching ICE from proxy…');
+        const r = await fetch(PROXY_ICE_URL);
+        const j = await r.json();
+        if(j.iceServers) { bIce.textContent = 'ICE: proxy'; return j.iceServers; }
+      }
+    } catch(e){ console.warn('proxy ice err', e); }
+
+    // 2) fetch Xirsys (client-side) - immediate testing (insecure)
+    try {
+      setStatus('Fetching ICE from Xirsys…');
+      const body = JSON.stringify({ format: "urls" });
+      const authHeader = "Basic " + btoa(XIRSYS_USERNAME + ":" + XIRSYS_SECRET);
+      const res = await fetch('https://global.xirsys.net/_turn/MyFirstApp', { method:'PUT', headers:{ "Authorization": authHeader, "Content-Type":"application/json" }, body });
+      if(!res.ok) throw new Error('Xirsys returned ' + res.status);
+      const j = await res.json();
+      if(j && j.v && j.v.iceServers){
+        bIce.textContent = 'ICE: xirsys';
+        return j.v.iceServers;
+      } else throw new Error('Unexpected Xirsys response');
+    } catch(e){
+      console.warn('Xirsys fetch failed', e);
+    }
+
+    // 3) fallback to Google STUN only
+    bIce.textContent = 'ICE: STUN-only';
+    return [{ urls: 'stun:stun.l.google.com:19302' }];
+  }
+
+  // ---------- WebRTC and signaling ----------
+  async function createPeer(){
+    // get ICE servers each time (so TURN credentials refresh if provider gives rotating creds)
+    const iceServers = await fetchIceServers();
+    if(!iceServers) iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    bIce.textContent = 'ICE: ready';
+
+    pc = new RTCPeerConnection({ iceServers });
+    pc.onconnectionstatechange = ()=> { $('connState').textContent = pc.connectionState; };
+    pc.onicegatheringstatechange = ()=> { $('iceState').textContent = pc.iceGatheringState; };
+    pc.oniceconnectionstatechange = ()=> { $('iceState').textContent = pc.iceConnectionState; };
+    pc.onsignalingstatechange = ()=> { $('dtlsState').textContent = pc.signalingState; };
+    pc.ontrack = (e)=> { remoteVideo.srcObject = e.streams[0]; };
+
+    // if caller, create datachannel; else wait for ondatachannel
+    if(role === 'caller'){
+      dc = pc.createDataChannel('chat');
+      setupDataChannel();
+    } else {
+      pc.ondatachannel = (e) => { dc = e.channel; setupDataChannel(); };
+    }
+
+    // add local tracks if we have media (text-only mode may skip)
+    if(!localStream){
+      try {
+        localStream = await getMedia();
+        localVideo.srcObject = localStream;
+      } catch(e){
+        console.warn('getMedia failed', e);
+        throw e;
+      }
+    }
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+    // set candidate DB refs for pushing
+    if(role === 'caller'){
+      callerCandidatesRef = db.ref('rooms/' + roomId + '/callerCandidates');
+    } else {
+      calleeCandidatesRef = db.ref('rooms/' + roomId + '/calleeCandidates');
+    }
+
+    // push local candidates
+    pc.onicecandidate = ev => {
+      if(!ev.candidate) return;
+      const data = ev.candidate.toJSON();
+      if(role === 'caller') { callerCandidatesRef.push(data); dlog('pushed caller candidate'); }
+      else { calleeCandidatesRef.push(data); dlog('pushed callee candidate'); }
+    };
+
+    // listen opposite's candidates and add
+    const oppCandidatesRef = role === 'caller' ? db.ref('rooms/' + roomId + '/calleeCandidates') : db.ref('rooms/' + roomId + '/callerCandidates');
+    oppCandidatesRef.on('child_added', async snap => {
+      const cand = snap.val();
+      try { await pc.addIceCandidate(cand); dlog('added remote candidate'); } catch(e){ console.warn('addIceCandidate err', e); }
+    });
+
+    // stats (bitrate)
+    if(bitrateTimer) clearInterval(bitrateTimer);
+    let lastBytes = 0, lastTs = 0;
+    bitrateTimer = setInterval(async () => {
+      if(!pc) return;
+      const stats = await pc.getStats();
+      stats.forEach(r => {
+        if(r.type === 'outbound-rtp' && !r.isRemote && r.kind === 'video'){
+          const now = r.timestamp, bytes = r.bytesSent || 0;
+          if(lastTs){
+            const bps = 8 * (bytes - lastBytes) / ((now - lastTs)/1000);
+            bitrateEl.textContent = Math.max(0, Math.round(bps/1000)) + ' kbps';
+          }
+          lastBytes = bytes; lastTs = now;
+        }
+      });
+    }, 1000);
+
+    setBadges();
+  }
+
+  function setupDataChannel(){
+    if(!dc) return;
+    dc.onopen = () => { addMsg('Connected -- say hi 👋','them'); };
+    dc.onmessage = (e) => { addMsg(e.data,'them'); };
+    dc.onclose = () => { addMsg('Stranger closed chat','them'); };
+  }
+
+  async function createRoomAsCaller(){
+    setStatus('Creating room...');
+    // create room node first
+    const r = db.ref('rooms').push();
+    roomId = r.key; roomRef = db.ref('rooms/' + roomId);
+    setBadges();
+
+    // prepare local peer (fetch ICE, getMedia, create pc)
+    role = 'caller'; setBadges();
+    await createPeer();
+
+    // create offer and save in DB
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await roomRef.set({
+      status: 'waiting',
+      createdBy: myUid,
+      createdAt: firebase.database.ServerValue.TIMESTAMP,
+      offer: { type: offer.type, sdp: offer.sdp },
+      callerProfile: myProfile || null
+    });
+
+    // listen for answer (once)
+    roomRef.on('value', async snap => {
+      const data = snap.val();
+      if(!data) return;
+      if(data.answer && pc && !pc.currentRemoteDescription){
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        if(data.calleeProfile) peerBrief.textContent = formatBrief(data.calleeProfile);
+        setStatus('Connected (caller)');
+        // enable next/end UI
+        $('btnEnd').disabled = false; $('btnNext').disabled = false;
+      }
+    });
+  }
+
+  async function joinRandomRoomAsCallee(){
+    setStatus('Searching for waiting rooms...');
+    // simple approach: fetch waiting rooms and claim first
+    const qSnap = await db.ref('rooms').orderByChild('status').equalTo('waiting').limitToFirst(10).get();
+    if(!qSnap.exists()){
+      // none waiting -> become caller and create room
+      return await createRoomAsCaller();
+    }
+    // iterate to claim one using transaction
+    let chosenKey = null, chosenVal = null;
+    qSnap.forEach(childSnap => { if(!chosenKey){ chosenKey = childSnap.key; chosenVal = childSnap.val(); } });
+    if(!chosenKey) return await createRoomAsCaller();
+    const thisRef = db.ref('rooms/' + chosenKey);
+    const tx = await thisRef.transaction(curr=>{
+      if(curr && curr.status === 'waiting'){ curr.status='matched'; curr.joinedBy = myUid; curr.calleeProfile = myProfile || null; return curr; }
+      return;
+    }, { applyLocally: false });
+
+    if(!tx.committed){
+      // race condition -- try again
+      return await joinRandomRoomAsCallee();
+    }
+
+    // joined as callee
+    roomId = chosenKey; roomRef = db.ref('rooms/' + roomId);
+    role = 'callee'; setBadges();
+
+    // prepare peer
+    await createPeer();
+
+    // read offer, set remote desc, create answer
+    const snap = await roomRef.get();
+    const roomData = snap.val();
+    if(!roomData || !roomData.offer){ setStatus('Room invalid'); await leaveRoom(true); return; }
+    peerBrief.textContent = formatBrief(roomData.callerProfile);
+    await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await roomRef.update({ answer: { type: answer.type, sdp: answer.sdp }, status: 'connected' });
+
+    setStatus('Connected (callee)');
+    $('btnEnd').disabled = false; $('btnNext').disabled = false;
+  }
+
+  // Start matchmaking (user pressed Start)
+  async function startMatchmaking(){
+    try {
+      await listDevices();
+      await getMedia(); // get permissions and local stream early so browser asks for camera/mic now
+      // if no existing localStream or pc, join random room as callee first (will attempt to claim)
+      await joinRandomRoomAsCallee();
+    } catch(e){
+      console.warn('matchmaking err', e); alert('Unable to access camera/mic or match: ' + (e.message||e));
+    }
+  }
+
+  // leave / cleanup
+  async function leaveRoom(removeRoom=true){
+    try {
+      if(pc){ pc.onicecandidate=null; pc.ontrack=null; pc.close(); }
+    } catch(e){}
+    pc = null; dc = null;
+    try {
+      if(callerCandidatesRef){ callerCandidatesRef.off(); await callerCandidatesRef.remove(); callerCandidatesRef = null; }
+      if(calleeCandidatesRef){ calleeCandidatesRef.off(); await calleeCandidatesRef.remove(); calleeCandidatesRef = null; }
+      if(roomRef){ roomRef.off(); if(removeRoom) await roomRef.remove(); roomRef = null; }
+    } catch(e){ console.warn('cleanup db', e); }
+    cleanupMedia();
+    if(bitrateTimer) { clearInterval(bitrateTimer); bitrateTimer=null; }
+    roomId = null; role = null; setBadges(); $('btnEnd').disabled=true; $('btnNext').disabled=true;
+    setStatus('Idle');
+  }
+
+  async function resetAndReconnect(){
+    await leaveRoom(true);
+    await startMatchmaking();
+  }
+
+  // ---------- UI events ----------
+  btnConnect.onclick = async ()=>{ btnConnect.disabled = true; setStatus('Starting…'); await startMatchmaking(); btnConnect.disabled = false; };
+  btnNext.onclick = async ()=>{ btnNext.disabled=true; setStatus('Finding next…'); await resetAndReconnect(); btnNext.disabled=false; };
+  btnEnd.onclick = async ()=>{ btnEnd.disabled=true; await leaveRoom(true); btnEnd.disabled=false; };
+  btnMute.onclick = ()=>{ if(!localStream) return; const t = localStream.getAudioTracks()[0]; if(!t) return; t.enabled = !t.enabled; btnMute.textContent = t.enabled ? 'Mute' : 'Unmute'; };
+  btnCam.onclick = ()=>{ if(!localStream) return; const t = localStream.getVideoTracks()[0]; if(!t) return; t.enabled = !t.enabled; btnCam.textContent = t.enabled ? 'Camera Off' : 'Camera On'; };
+
+  sendBtn.onclick = ()=>{ if(!dc || dc.readyState!=='open'){ addMsg('Channel not ready','them'); return; } const v = txt.value.trim(); if(!v) return; dc.send(v); addMsg(v,'me'); txt.value=''; };
+  txt.addEventListener('keydown', (e)=>{ if(e.key==='Enter') sendBtn.click(); });
+
+  // ---------- small utilities ----------
+  function dlog(...a){ console.log(...a); }
+  window.addEventListener('beforeunload', async ()=>{ await leaveRoom(false); });
+
+  // populate devices on load (best-effort)
+  listDevices().catch(()=>{});
+
+  // ---------- Proxy example for production (Node) ----------
+  /*
+    // Save this as server.js and deploy on Railway / Heroku / DigitalOcean
+    const express = require('express');
+    const fetch = require('node-fetch');
+    const app = express();
+    const XIRSYS_USERNAME = "fardin01dz";
+    const XIRSYS_SECRET = "b8353378-7d1f-11f0-90df-0242ac140002";
+    app.get('/ice', async (req,res) => {
+      try {
+        const body = JSON.stringify({ format: "urls" });
+        const r = await fetch('https://global.xirsys.net/_turn/MyFirstApp', {
+          method:'PUT',
+          headers: { "Authorization":"Basic " + Buffer.from(XIRSYS_USERNAME+":"+XIRSYS_SECRET).toString('base64'), "Content-Type":"application/json" },
+          body
+        });
+        const j = await r.json();
+        res.json({ iceServers: j.v.iceServers });
+      } catch(e){ res.status(500).json({ error: e.message }); }
+    });
+    app.listen(process.env.PORT||3000);
+    // Then set PROXY_ICE_URL to https://your-server/ice and remove client secrets.
+  */
+
+  // Done
+  setStatus('Ready. Login or try guest to start.');
+  </script>
+</body>
+</html>
